@@ -27,7 +27,7 @@ class PivotPoints(IStrategy):
     stoploss = -0.05
     use_custom_stoploss = True
 
-    @informative('1d')
+    @informative('1w')
     def populate_indicators_1h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         data = pivots_points(dataframe, timeperiod=1)
         dataframe['pivot'] = data['pivot']
@@ -70,9 +70,9 @@ class PivotPoints(IStrategy):
                 close = dataframe.shift(i)['close']
                 return (low < dataframe[key]) & (close > dataframe[key])
 
-        crossed = touched_pivot(dataframe, 'pivot_1d')
+        crossed = touched_pivot(dataframe, 'pivot_1w')
         for i in range(1, 3):
-            crossed = crossed | touched_pivot(dataframe, "s" + str(i) + '_1d')
+            crossed = crossed | touched_pivot(dataframe, "s" + str(i) + '_1w')
 
         dataframe.loc[
             (
@@ -88,7 +88,7 @@ class PivotPoints(IStrategy):
         crossed = False
         for i in range(1, 3):
             crossed = crossed | qtpylib.crossed_below(
-                dataframe['close'], dataframe["r" + str(i) + '_1d']
+                dataframe['close'], dataframe["r" + str(i) + '_1w']
             )
 
         dataframe.loc[crossed, 'exit_long'] = 1
