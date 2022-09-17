@@ -56,4 +56,4 @@ EXPOSE 8080
 
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
-CMD [ "trade", "--strategy", "Candlestick" ]
+CMD [ "trade", "--strategy", "PivotPoints" ]
