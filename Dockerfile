@@ -34,8 +34,6 @@ ENV LD_LIBRARY_PATH /usr/local/lib
 
 # Install dependencies
 COPY --chown=ftuser:ftuser requirements.txt requirements-hyperopt.txt /freqtrade/
-
-
 USER ftuser
 RUN  pip install --user --no-cache-dir numpy \
   && pip install --user --no-cache-dir -r requirements-hyperopt.txt
@@ -52,10 +50,7 @@ USER ftuser
 COPY --chown=ftuser:ftuser . /freqtrade/
 
 RUN pip install -e . --user --no-cache-dir --no-build-isolation \
-  && mkdir /freqtrade/user_data/ \
   && freqtrade install-ui
-
-COPY --chown=ftuser:ftuser config.json /freqtrade/
 
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
