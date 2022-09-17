@@ -53,6 +53,10 @@ RUN pip install -e . --user --no-cache-dir --no-build-isolation \
   && mkdir /freqtrade/user_data/ \
   && freqtrade install-ui
 
+# Copy Strategy
+COPY --chown=ftuser:ftuser user_data /freqtrade/user_data
+COPY --chown=ftuser:ftuser config.json config.json /freqtrade/
+
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
 CMD [ "trade" ]
