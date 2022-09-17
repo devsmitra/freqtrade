@@ -55,9 +55,4 @@ RUN pip install -e . --user --no-cache-dir --no-build-isolation \
 
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
-CMD [ "trade",  
-    "--logfile", "/freqtrade/user_data/logs/freqtrade.log",
-    "--db-url", "sqlite:////freqtrade/user_data/tradesv3.sqlite",
-    "--config", "/freqtrade/user_data/config.json",
-    "--strategy", "Candlestick"
- ]
+CMD [ "trade --config /freqtrade/user_data/config.json --strategy Candlestick" ]
