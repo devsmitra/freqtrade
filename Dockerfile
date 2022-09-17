@@ -52,6 +52,8 @@ COPY --chown=ftuser:ftuser . /freqtrade/
 RUN pip install -e . --user --no-cache-dir --no-build-isolation \
   && freqtrade install-ui
 
+EXPOSE 8080
+
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
 CMD [ "trade", "--strategy", "Candlestick" ]
