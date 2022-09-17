@@ -55,7 +55,6 @@ RUN pip install -e . --user --no-cache-dir --no-build-isolation \
   && mkdir /freqtrade/user_data/ \
   && freqtrade install-ui
 
-COPY --chown=ftuser:ftuser user_data /freqtrade/user_data
 COPY --chown=ftuser:ftuser config.json /freqtrade/
 
 ENTRYPOINT ["freqtrade"]

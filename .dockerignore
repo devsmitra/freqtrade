@@ -15,10 +15,8 @@ README.md
 freqtrade.service
 freqtrade.egg-info
 
-config.json*
-*.sqlite
-user_data
-*.log
+_.sqlite
+_.log
 
 .vscode
 .mypy_cache
