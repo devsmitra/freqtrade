@@ -58,14 +58,15 @@ class PivotPoints(IStrategy):
         return self.wallets.get_total_stake_amount() * .06
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        dataframe['adx'] = ta.ADX(dataframe, timeperiod=14)
         dataframe['atr'] = ta.ATR(dataframe, timeperiod=14)
+        dataframe['rsi'] = ta.RSI(dataframe, timeperiod=14)
+        # dataframe['adx'] = ta.ADX(dataframe, timeperiod=14)
         dataframe['pattern'] = self.find_pattern(dataframe)
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         def touched_pivot(dataframe, key):
-            for i in range(1, 3):
+            for i in range(0, 3):
                 low = dataframe.shift(i)['low']
                 close = dataframe.shift(i)['close']
                 return (low < dataframe[key]) & (close > dataframe[key])
@@ -73,12 +74,13 @@ class PivotPoints(IStrategy):
         crossed = touched_pivot(dataframe, 'pivot_1w')
         for i in range(1, 3):
             crossed = crossed | touched_pivot(dataframe, "s" + str(i) + '_1w')
+            crossed = crossed | touched_pivot(dataframe, "r" + str(i) + '_1w')
 
         dataframe.loc[
             (
                 crossed &
-                (dataframe['adx'] > 20) &
-                dataframe['pattern']
+                dataframe['pattern'] &
+                (dataframe['rsi'] > 50)
             ),
             'enter_long'
         ] = 1
@@ -103,20 +105,21 @@ class PivotPoints(IStrategy):
         return True
 
     def find_pattern(self, df: DataFrame):
-        df['morning_star'] = talib.CDLMORNINGSTAR(df['open'], df['high'], df['low'], df['close'])
-        df['engulfing'] = talib.CDLENGULFING(df['open'], df['high'], df['low'], df['close'])
-        df['hammer'] = talib.CDLHAMMER(df['open'], df['high'], df['low'], df['close'])
-        df['dragonfly_doji'] = talib.CDLDRAGONFLYDOJI(
+        data = {}
+        data['morning_star'] = talib.CDLMORNINGSTAR(df['open'], df['high'], df['low'], df['close'])
+        data['engulfing'] = talib.CDLENGULFING(df['open'], df['high'], df['low'], df['close'])
+        data['hammer'] = talib.CDLHAMMER(df['open'], df['high'], df['low'], df['close'])
+        data['dragonfly_doji'] = talib.CDLDRAGONFLYDOJI(
             df['open'], df['high'], df['low'], df['close']
         )
         # Three white soldiers
-        df['three_white_soldiers'] = talib.CDL3WHITESOLDIERS(
+        data['three_white_soldiers'] = talib.CDL3WHITESOLDIERS(
             df['open'], df['high'], df['low'], df['close']
         )
         return (
-            (df['morning_star'] == 100) |
-            (df['engulfing'] == 100) |
-            (df['hammer'] == 100) |
-            (df['dragonfly_doji'] == 100) |
-            (df['three_white_soldiers'] == 100)
+            (data['morning_star'] == 100) |
+            (data['engulfing'] == 100) |
+            (data['hammer'] == 100) |
+            (data['dragonfly_doji'] == 100) |
+            (data['three_white_soldiers'] == 100)
         )
