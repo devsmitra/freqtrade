@@ -46,13 +46,12 @@ class PivotPoints(IStrategy):
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe['atr'] = ta.ATR(dataframe)
-        dataframe['rsi'] = ta.RSI(dataframe)
 
         data = ta.STOCH(dataframe)
         dataframe['slowk'] = data['slowk']
         dataframe['slowd'] = data['slowd']
 
-        dataframe['pattern'] = self.find_pattern(dataframe)
+        # dataframe['pattern'] = self.find_pattern(dataframe)
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
