@@ -8,7 +8,7 @@ from typing import Optional
 # --------------------------------
 import freqtrade.vendor.qtpylib.indicators as qtpylib
 import talib.abstract as ta
-import support as sup
+import madrid as mad
 
 
 class MACD(IStrategy):
@@ -23,10 +23,10 @@ class MACD(IStrategy):
     use_custom_stoploss = True
 
     # Optimal timeframe for the strategy
-    timeframe = '15m'
+    timeframe = '1h'
 
-    # cache
-    cache: dict = {}
+    # Cache
+    # cache = {}
 
     def custom_stake_amount(self, pair: str, current_time: datetime, current_rate: float,
                             proposed_stake: float, min_stake: Optional[float], max_stake: float,
@@ -38,30 +38,49 @@ class MACD(IStrategy):
 
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
         df['atr'] = ta.ATR(df)
-
-        time = df.iloc[-1]['date']
-        key = metadata['pair']
-        if key in self.cache and self.cache[key]['Time'] == time:
-            df['Trend'] = self.cache[key]['Trend']
-        else:
-            sup.identify_df_trends(df, 'close')
-            self.cache[key] = {
-                'Trend': df['Trend'],
-                'Time': time
-            }
+        df['adx'] = ta.ADX(df)
+        mad.madrid(df)
         return df
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-        df.loc[
-            qtpylib.crossed_above(df['Trend'], 0),
-            'enter_long'
-        ] = 1
+
+        con = (
+            (df.shift()['val5'] <= 00) | (df.shift()['val10'] <= 0) | (df.shift()['val15'] <= 0) |
+            (df.shift()['val20'] <= 0) | (df.shift()['val25'] <= 0) | (df.shift()['val30'] <= 0) |
+            (df.shift()['val35'] <= 0) | (df.shift()['val40'] <= 0) | (df.shift()['val45'] <= 0) |
+            (df.shift()['val50'] <= 0) | (df.shift()['val55'] <= 0) | (df.shift()['val60'] <= 0) |
+            (df.shift()['val65'] <= 0) | (df.shift()['val70'] <= 0) | (df.shift()['val75'] <= 0) |
+            (df.shift()['val80'] <= 0) | (df.shift()['val85'] <= 0) | (df.shift()['val90'] <= 0)
+        ) | qtpylib.crossed_above(df['adx'], 20)
+
+        enter_long = (
+            con &
+            (df['val5'] > 0) & (df['val10'] > 0) & (df['val15'] > 0) &
+            (df['val20'] > 0) & (df['val25'] > 0) & (df['val30'] > 0) &
+            (df['val35'] > 0) & (df['val40'] > 0) & (df['val45'] > 0) &
+            (df['val50'] > 0) & (df['val55'] > 0) & (df['val60'] > 0) &
+            (df['val65'] > 0) & (df['val70'] > 0) & (df['val75'] > 0) &
+            (df['val80'] > 0) & (df['val85'] > 0) & (df['val90'] > 0)
+        )
+
+        # self.cache[metadata['pair']] = df['low'].rolling(5).min()
+        df.loc[enter_long, 'enter_long'] = 1
 
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
-            (df['Trend'] == -1),
+            (
+                qtpylib.crossed_below(df['adx'], 25) |
+                (
+                    (df['val5'] <= 0) & (df['val10'] <= 0) & (df['val15'] <= 0) &
+                    (df['val20'] <= 0) & (df['val25'] <= 0) & (df['val30'] <= 0) &
+                    (df['val35'] <= 0) & (df['val40'] <= 0) & (df['val45'] <= 0) &
+                    (df['val50'] <= 0) & (df['val55'] <= 0) & (df['val60'] <= 0) &
+                    (df['val65'] <= 0) & (df['val70'] <= 0) & (df['val75'] <= 0) &
+                    (df['val80'] <= 0) & (df['val85'] <= 0) & (df['val90'] <= 0)
+                )
+            ),
             'exit_long'
         ] = 1
         return df
@@ -69,8 +88,7 @@ class MACD(IStrategy):
     def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
                            rate: float, time_in_force: str, exit_reason: str,
                            current_time: datetime, **kwargs) -> bool:
-        profit = trade.calc_profit_ratio(rate)
-        if (((exit_reason == 'force_exit') | (exit_reason == 'exit_signal')) and (profit < 0)):
+        if (exit_reason == 'force_exit'):
             return False
         return True
 
@@ -79,18 +97,24 @@ class MACD(IStrategy):
 
         df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         candle = df.iloc[-1].squeeze()
-
-        alt = candle['atr']
+        atr = candle['atr']
 
         def get_stoploss(multiplier):
             return stoploss_from_absolute(current_rate - (
-               alt * multiplier), current_rate, is_short=trade.is_short
+               atr * multiplier), current_rate, is_short=trade.is_short
             ) * -1
 
-        if ((candle['open'] + (alt * 6.1)) < current_rate):
-            return get_stoploss(1)
         if current_profit > .1:
             return get_stoploss(1.1)
-        if current_profit > .05:
-            return get_stoploss(2.1)
         return get_stoploss(4.1)
+
+    def custom_exit(self, pair: str, trade: 'Trade', current_time: 'datetime',
+                    current_rate: float, current_profit: float, **kwargs):
+
+        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        candle = df.iloc[-1].squeeze()
+
+        if current_profit > 0:
+            atr = candle['atr']
+            if ((candle['open'] + (atr * 6.1)) < current_rate):
+                return 'Profit Booked'
