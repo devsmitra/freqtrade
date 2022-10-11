@@ -114,3 +114,19 @@ class MACD(IStrategy):
             if (trade.open_rate - diff) > current_rate:
                 del self.cache[pair]
                 return 'Stop Loss Hit'
+
+    @property
+    def protections(self):
+        return [
+            {
+                "method": "CooldownPeriod",
+                "stop_duration_candles": 6
+            },
+            {
+                "method": "StoplossGuard",
+                "lookback_period_candles": 6,
+                "trade_limit": 4,
+                "stop_duration_candles": 2,
+                "only_per_pair": True
+            },
+        ]
