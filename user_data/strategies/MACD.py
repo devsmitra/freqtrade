@@ -47,8 +47,8 @@ class MACD(IStrategy):
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
             (
-                (df['chandelier_exit'] == -1) & qtpylib.crossed_below(df['close'], df['zlsma']) |
-                qtpylib.crossed_below(df['chandelier_exit'], 0) & (df['close'] < df['zlsma'])
+                (df['chandelier_exit'] == 0) & qtpylib.crossed_below(df['close'], df['zlsma']) |
+                qtpylib.crossed_below(df['chandelier_exit'], 1) & (df['close'] < df['zlsma'])
             ),
             'exit_long'] = 1
         return df
@@ -65,15 +65,15 @@ class MACD(IStrategy):
                atr * multiplier), current_rate, is_short=trade.is_short
             ) * -1
 
-        if current_profit > .1:
+        if (current_profit > .1) and (candle['chandelier_exit'] != 1):
             return get_stoploss(1.1)
-        return get_stoploss(2.1)
+        return get_stoploss(4.1)
 
     def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
                            rate: float, time_in_force: str, exit_reason: str,
                            current_time: datetime, **kwargs) -> bool:
         profit = trade.calc_profit_ratio(rate)
-        if (((exit_reason == 'force_exit') | (exit_reason == 'exit_signal')) and (profit < 0)):
+        if (((exit_reason == 'force_exit') | (exit_reason == 'exit_signal')) and (profit < .02)):
             return False
         return True
 
