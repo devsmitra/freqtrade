@@ -61,8 +61,8 @@ class MACD(IStrategy):
         atr = candle['atr']
 
         def get_stoploss(multiplier):
-            return stoploss_from_absolute(candle['open'] - (
-               atr * multiplier), candle['open'], is_short=trade.is_short
+            return stoploss_from_absolute(current_rate - (
+               atr * multiplier), current_rate, is_short=trade.is_short
             ) * -1
 
         if current_profit > .1:
