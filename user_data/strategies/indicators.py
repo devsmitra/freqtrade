@@ -40,17 +40,19 @@ def lowest(series, n):
 # -------------------------------- INDICATORS --------------------------------
 
 
-def zlsma(df, period=50, offset=0):
-    src = df['close']
+def zlsma(df, period=50, offset=0, column='close'):
+    src = df[column]
     lsma = ta.LINEARREG(src, period, offset)
     lsma2 = ta.LINEARREG(lsma, period, offset)
     eq = lsma - lsma2
     return lsma + eq
 
 
-def chandelier_exit(df, timeperiod=14, multiplier=2):
-    atr = multiplier * ta.ATR(df, period=timeperiod)
-    close = df['close']
+def chandelier_exit(df, timeperiod=14, multiplier=2, column='close'):
+    close = df[column]
+    high = df['ha_high']
+    low = df['ha_low']
+    atr = multiplier * ta.ATR(high, low, close, timeperiod=timeperiod)
 
     longStop = highest(close, timeperiod) - atr
     longStopPrev = nz(longStop)

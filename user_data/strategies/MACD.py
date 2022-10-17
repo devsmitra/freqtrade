@@ -34,9 +34,16 @@ class MACD(IStrategy):
         return self.wallets.get_total_stake_amount() * .06
 
     def populate_indicators(self, df: DataFrame, metadata: dict) -> DataFrame:
+        heikinashi = qtpylib.heikinashi(df)
+        df['ha_close'] = heikinashi['close']
+        df['ha_open'] = heikinashi['open']
+        df['ha_high'] = heikinashi['high']
+        df['ha_low'] = heikinashi['low']
+
         df['atr'] = ta.ATR(df, timeperiod=14)
-        df['zlsma'] = indicators.zlsma(df)
-        df['chandelier_exit'] = indicators.chandelier_exit(df, timeperiod=8, multiplier=1.85)
+        df['zlsma'] = indicators.zlsma(df, period=50, offset=0, column='ha_close')
+        df['chandelier_exit'] = indicators.chandelier_exit(
+            df, timeperiod=14, multiplier=1.85, column='ha_close')
         return df
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
