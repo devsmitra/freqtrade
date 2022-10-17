@@ -65,3 +65,10 @@ def chandelier_exit(df, timeperiod=14, multiplier=2, column='close'):
     signal.loc[close < longStopPrev] = -1
 
     return signal
+
+
+def volatility_osc(df, timeperiod=100):
+    spike = df['ha_close'] - df['ha_open']
+    x = ta.STDDEV(spike, timeperiod)
+    y = ta.STDDEV(spike, timeperiod) * -1
+    return pd.DataFrame(index=df.index, data={'upper': x, 'lower': y, 'spike': spike})

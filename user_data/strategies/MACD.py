@@ -44,18 +44,34 @@ class MACD(IStrategy):
         df['zlsma'] = indicators.zlsma(df, period=50, offset=0, column='ha_close')
         df['chandelier_exit'] = indicators.chandelier_exit(
             df, timeperiod=14, multiplier=1.85, column='ha_close')
+
+        vol = indicators.volatility_osc(df)
+        df['upper'] = vol['upper']
+        df['lower'] = vol['lower']
+        df['spike'] = vol['spike']
         return df
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
-        enter_long = (df['close'] > df['zlsma']) & qtpylib.crossed_above(df['chandelier_exit'], 0)
+        # enter_long = (
+        #     ((df['ha_close'] > df['zlsma']) & qtpylib.crossed_above(df['spike'], df['upper'])) |
+        #     (qtpylib.crossed_above(df['ha_close'], df['zlsma']) & (df['spike'] > df['upper']))
+        # )
+        enter_long = (
+            (df['ha_close'] > df['zlsma']) &
+            qtpylib.crossed_above(df['chandelier_exit'], 0)
+        )
         df.loc[enter_long, 'enter_long'] = 1
         return df
 
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
+            # (
+            #     (df['spike'] < 0) & qtpylib.crossed_below(df['ha_close'], df['zlsma']) |
+            #     qtpylib.crossed_below(df['spike'], 0) & (df['ha_close'] < df['zlsma'])
+            # ),
             (
-                (df['chandelier_exit'] < 1) & qtpylib.crossed_below(df['close'], df['zlsma']) |
-                qtpylib.crossed_below(df['chandelier_exit'], 1) & (df['close'] < df['zlsma'])
+                (df['chandelier_exit'] < 1) & qtpylib.crossed_below(df['ha_close'], df['zlsma']) |
+                qtpylib.crossed_below(df['chandelier_exit'], 1) & (df['ha_close'] < df['zlsma'])
             ),
             'exit_long'] = 1
         return df
