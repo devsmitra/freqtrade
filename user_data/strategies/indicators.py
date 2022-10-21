@@ -37,6 +37,10 @@ def highest(series, n):
 def lowest(series, n):
     return series.rolling(n).min()
 
+
+def series(value, df):
+    return pd.series(value, index=df.index)
+
 # -------------------------------- INDICATORS --------------------------------
 
 
@@ -57,11 +61,11 @@ def chandelier_exit(df, timeperiod=14, multiplier=2, column='close'):
     longStop = highest(close, timeperiod) - atr
     longStopPrev = nz(longStop)
 
-    shortStop = lowest(close, timeperiod) + atr
-    shortStopPrev = nz(shortStop)
+    # shortStop = lowest(close, timeperiod) + atr
+    # shortStopPrev = nz(shortStop)
 
-    signal = pd.Series(0, index=df.index)
-    signal.loc[close > shortStopPrev] = 1
+    signal = pd.Series(1, index=df.index)
+    # signal.loc[close > shortStopPrev] = 1
     signal.loc[close < longStopPrev] = -1
 
     return signal
@@ -72,3 +76,21 @@ def volatility_osc(df, timeperiod=100):
     x = ta.STDDEV(spike, timeperiod)
     y = ta.STDDEV(spike, timeperiod) * -1
     return pd.DataFrame(index=df.index, data={'upper': x, 'lower': y, 'spike': spike})
+
+
+def calculate_money_flow_volume_series(df):
+    mfv = df['volume'] * (2 * df['close'] - df['high'] - df['low']) / \
+                                    (df['high'] - df['low'])
+    return mfv
+
+
+def calculate_money_flow_volume(df, n: int = 20):
+    return calculate_money_flow_volume_series(df).rolling(n).sum()
+
+
+def calculate_chaikin_money_flow(df, n: int = 20):
+    return calculate_money_flow_volume(df, n) / df['volume'].rolling(n).sum()
+
+
+def poki(df, timeperiod=100, column='close'):
+    pass
