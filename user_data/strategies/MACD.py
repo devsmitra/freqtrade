@@ -43,16 +43,18 @@ class MACD(IStrategy):
         df['atr'] = ta.ATR(df, timeperiod=14)
         df['zlsma'] = indicators.zlsma(df, period=50, offset=0, column='ha_close')
         df['chandelier_exit'] = indicators.chandelier_exit(
-            df, timeperiod=14, multiplier=1.85, column='ha_close')
+            df, timeperiod=14, multiplier=1.85, column='ha_close'
+        )
 
-        df['cmf'] = indicators.calculate_chaikin_money_flow(df)
+        df['cmf'] = indicators.cmf(df)
         # vol = indicators.volatility_osc(df)
         return df
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         enter_long = (
-            (df['cmf'] > 0) &
+            ((df['ha_close'].diff() / df['ha_close']) < .1) &
             (df['ha_close'] > df['zlsma']) &
+            (df['cmf'] > 0) &
             qtpylib.crossed_above(df['chandelier_exit'], -1)
         )
         df.loc[enter_long, 'enter_long'] = 1
@@ -61,17 +63,9 @@ class MACD(IStrategy):
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
             (
-                (
-                    ((df['chandelier_exit'] < 1) | (df['cmf'] < 0)) &
-                    qtpylib.crossed_below(df['ha_close'], df['zlsma'])
-                ) |
-                (
-                    (
-                        qtpylib.crossed_below(df['chandelier_exit'], 1) |
-                        qtpylib.crossed_below(df['cmf'], 0)
-                    ) &
-                    (df['ha_close'] < df['zlsma'])
-                )
+                (df['chandelier_exit'] < 1) &
+                (df['ha_close'] < df['zlsma']) &
+                (df['cmf'] < 0)
             ),
             'exit_long'
         ] = 1

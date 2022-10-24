@@ -94,3 +94,18 @@ def calculate_chaikin_money_flow(df, n: int = 20):
 
 def poki(df, timeperiod=100, column='close'):
     pass
+
+
+def cmf(df, timeperiod=20,):
+    close = df['close']
+    high = df['high']
+    low = df['low']
+    volume = df['volume']
+
+    ad = np.where((((close == high) & (close == low)) | (high == low)), 0, (
+        (2 * close - low - high) / (high - low)) * volume
+    )
+    signal = pd.Series(ad, index=df.index)
+
+    mf = signal.rolling(timeperiod).sum() / volume.rolling(timeperiod).sum()
+    return mf
