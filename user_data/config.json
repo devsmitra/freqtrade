@@ -6,7 +6,7 @@
   "stake_amount": 20,
   "tradable_balance_ratio": 1,
   "fiat_display_currency": "USD",
-  "dry_run": true,
+  "dry_run": false,
   "cancel_open_orders_on_exit": false,
   "trading_mode": "spot",
   "margin_mode": "",
@@ -37,33 +37,23 @@
     "secret": "",
     "ccxt_config": {},
     "ccxt_async_config": {},
-    "pair_whitelist": [],
+    "pair_whitelist": [
+      "BTC/BUSD",
+      "ETH/BUSD",
+      "BNB/BUSD",
+      "ADA/BUSD",
+      "XRP/BUSD",
+      "DOT/BUSD",
+      "UNI/BUSD",
+      "LTC/BUSD",
+      "LINK/BUSD",
+      "SOL/BUSD"
+    ],
     "pair_blacklist": []
   },
   "pairlists": [
     {
-      "method": "VolumePairList",
-      "number_assets": 60,
-      "sort_key": "quoteVolume",
-      "min_value": 0,
-      "refresh_period": 1200
-    },
-    {
-      "method": "AgeFilter",
-      "min_days_listed": 2
-    },
-    {
-      "method": "RangeStabilityFilter",
-      "lookback_days": 5,
-      "min_rate_of_change": 0.02,
-      "refresh_period": 1440
-    },
-    {
-      "method": "VolatilityFilter",
-      "lookback_days": 5,
-      "min_volatility": 0.05,
-      "max_volatility": 100,
-      "refresh_period": 86400
+      "method": "StaticPairList"
     }
   ],
   "edge": {
@@ -92,7 +82,7 @@
     "verbosity": "error",
     "enable_openapi": false,
     "jwt_secret_key": "e4e3a8a36f04811688e560c2b9d7712fb11738c3d63d4687e789ac57afd408e6",
-    "CORS_origins": ["localhost:3000"],
+    "CORS_origins": [],
     "username": "freqtrade",
     "password": "freqtrade"
   },
