@@ -31,6 +31,14 @@
     "use_order_book": true,
     "order_book_top": 1
   },
+  "order_types": {
+    "buy": "limit",
+    "sell": "limit",
+    "emergencysell": "market",
+    "stoploss": "market",
+    "stoploss_on_exchange": true,
+    "stoploss_on_exchange_interval": 60
+  },
   "exchange": {
     "name": "binance",
     "key": "",
@@ -53,7 +61,28 @@
   },
   "pairlists": [
     {
-      "method": "StaticPairList"
+      "method": "VolumePairList",
+      "number_assets": 60,
+      "sort_key": "quoteVolume",
+      "min_value": 0,
+      "refresh_period": 1800
+    },
+    {
+      "method": "AgeFilter",
+      "min_days_listed": 2
+    },
+    {
+      "method": "RangeStabilityFilter",
+      "lookback_days": 5,
+      "min_rate_of_change": 0.02,
+      "refresh_period": 1440
+    },
+    {
+      "method": "VolatilityFilter",
+      "lookback_days": 5,
+      "min_volatility": 0.05,
+      "max_volatility": 100,
+      "refresh_period": 86400
     }
   ],
   "edge": {
