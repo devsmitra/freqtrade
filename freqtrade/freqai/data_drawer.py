@@ -1,14 +1,15 @@
 import collections
-import json
 import logging
 import re
 import shutil
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple, TypedDict
 
 import numpy as np
 import pandas as pd
+import psutil
 import rapidjson
 from joblib import dump, load
 from joblib.externals import cloudpickle
@@ -16,6 +17,7 @@ from numpy.typing import NDArray
 from pandas import DataFrame
 
 from freqtrade.configuration import TimeRange
+from freqtrade.constants import Config
 from freqtrade.data.history import load_pair_history
 from freqtrade.exceptions import OperationalException
 from freqtrade.freqai.data_kitchen import FreqaiDataKitchen
@@ -27,9 +29,7 @@ logger = logging.getLogger(__name__)
 
 class pair_info(TypedDict):
     model_filename: str
-    first: bool
     trained_timestamp: int
-    priority: int
     data_path: str
     extras: dict
 
@@ -58,7 +58,7 @@ class FreqaiDataDrawer:
     Juha Nykänen @suikula, Wagner Costa @wagnercosta, Johan Vlugt @Jooopieeert
     """
 
-    def __init__(self, full_path: Path, config: dict, follow_mode: bool = False):
+    def __init__(self, full_path: Path, config: Config, follow_mode: bool = False):
 
         self.config = config
         self.freqai_info = config.get("freqai", {})
@@ -66,6 +66,8 @@ class FreqaiDataDrawer:
         self.pair_dict: Dict[str, pair_info] = {}
         # dictionary holding all actively inferenced models in memory given a model filename
         self.model_dictionary: Dict[str, Any] = {}
+        # all additional metadata that we want to keep in ram
+        self.meta_data_dictionary: Dict[str, Dict[str, Any]] = {}
         self.model_return_values: Dict[str, DataFrame] = {}
         self.historic_data: Dict[str, Dict[str, DataFrame]] = {}
         self.historic_predictions: Dict[str, DataFrame] = {}
@@ -76,31 +78,63 @@ class FreqaiDataDrawer:
             self.full_path / f"follower_dictionary-{self.follower_name}.json"
         )
         self.historic_predictions_path = Path(self.full_path / "historic_predictions.pkl")
+        self.historic_predictions_bkp_path = Path(
+            self.full_path / "historic_predictions.backup.pkl")
         self.pair_dictionary_path = Path(self.full_path / "pair_dictionary.json")
+        self.metric_tracker_path = Path(self.full_path / "metric_tracker.json")
         self.follow_mode = follow_mode
         if follow_mode:
             self.create_follower_dict()
         self.load_drawer_from_disk()
         self.load_historic_predictions_from_disk()
+        self.load_metric_tracker_from_disk()
         self.training_queue: Dict[str, int] = {}
         self.history_lock = threading.Lock()
         self.save_lock = threading.Lock()
         self.pair_dict_lock = threading.Lock()
+        self.metric_tracker_lock = threading.Lock()
         self.old_DBSCAN_eps: Dict[str, float] = {}
         self.empty_pair_dict: pair_info = {
                 "model_filename": "", "trained_timestamp": 0,
-                "priority": 1, "first": True, "data_path": "", "extras": {}}
+                "data_path": "", "extras": {}}
+        self.metric_tracker: Dict[str, Dict[str, Dict[str, list]]] = {}
+
+    def update_metric_tracker(self, metric: str, value: float, pair: str) -> None:
+        """
+        General utility for adding and updating custom metrics. Typically used
+        for adding training performance, train timings, inferenc timings, cpu loads etc.
+        """
+        with self.metric_tracker_lock:
+            if pair not in self.metric_tracker:
+                self.metric_tracker[pair] = {}
+            if metric not in self.metric_tracker[pair]:
+                self.metric_tracker[pair][metric] = {'timestamp': [], 'value': []}
+
+            timestamp = int(datetime.now(timezone.utc).timestamp())
+            self.metric_tracker[pair][metric]['value'].append(value)
+            self.metric_tracker[pair][metric]['timestamp'].append(timestamp)
+
+    def collect_metrics(self, time_spent: float, pair: str):
+        """
+        Add metrics to the metric tracker dictionary
+        """
+        load1, load5, load15 = psutil.getloadavg()
+        cpus = psutil.cpu_count()
+        self.update_metric_tracker('train_time', time_spent, pair)
+        self.update_metric_tracker('cpu_load1min', load1 / cpus, pair)
+        self.update_metric_tracker('cpu_load5min', load5 / cpus, pair)
+        self.update_metric_tracker('cpu_load15min', load15 / cpus, pair)
 
     def load_drawer_from_disk(self):
         """
         Locate and load a previously saved data drawer full of all pair model metadata in
         present model folder.
-        :return: bool - whether or not the drawer was located
+        Load any existing metric tracker that may be present.
         """
         exists = self.pair_dictionary_path.is_file()
         if exists:
             with open(self.pair_dictionary_path, "r") as fp:
-                self.pair_dict = json.load(fp)
+                self.pair_dict = rapidjson.load(fp, number_mode=rapidjson.NM_NATIVE)
         elif not self.follow_mode:
             logger.info("Could not find existing datadrawer, starting from scratch")
         else:
@@ -109,7 +143,18 @@ class FreqaiDataDrawer:
                 "sending null values back to strategy"
             )
 
-        return exists
+    def load_metric_tracker_from_disk(self):
+        """
+        Tries to load an existing metrics dictionary if the user
+        wants to collect metrics.
+        """
+        if self.freqai_info.get('write_metrics_to_disk', False):
+            exists = self.metric_tracker_path.is_file()
+            if exists:
+                with open(self.metric_tracker_path, "r") as fp:
+                    self.metric_tracker = rapidjson.load(fp, number_mode=rapidjson.NM_NATIVE)
+            else:
+                logger.info("Could not find existing metric tracker, starting from scratch")
 
     def load_historic_predictions_from_disk(self):
         """
@@ -118,13 +163,21 @@ class FreqaiDataDrawer:
         """
         exists = self.historic_predictions_path.is_file()
         if exists:
-            with open(self.historic_predictions_path, "rb") as fp:
-                self.historic_predictions = cloudpickle.load(fp)
-            logger.info(
-                f"Found existing historic predictions at {self.full_path}, but beware "
-                "that statistics may be inaccurate if the bot has been offline for "
-                "an extended period of time."
-            )
+            try:
+                with open(self.historic_predictions_path, "rb") as fp:
+                    self.historic_predictions = cloudpickle.load(fp)
+                logger.info(
+                    f"Found existing historic predictions at {self.full_path}, but beware "
+                    "that statistics may be inaccurate if the bot has been offline for "
+                    "an extended period of time."
+                )
+            except EOFError:
+                logger.warning(
+                    'Historical prediction file was corrupted. Trying to load backup file.')
+                with open(self.historic_predictions_bkp_path, "rb") as fp:
+                    self.historic_predictions = cloudpickle.load(fp)
+                logger.warning('FreqAI successfully loaded the backup historical predictions file.')
+
         elif not self.follow_mode:
             logger.info("Could not find existing historic_predictions, starting from scratch")
         else:
@@ -137,10 +190,22 @@ class FreqaiDataDrawer:
 
     def save_historic_predictions_to_disk(self):
         """
-        Save data drawer full of all pair model metadata in present model folder.
+        Save historic predictions pickle to disk
         """
         with open(self.historic_predictions_path, "wb") as fp:
             cloudpickle.dump(self.historic_predictions, fp, protocol=cloudpickle.DEFAULT_PROTOCOL)
+
+        # create a backup
+        shutil.copy(self.historic_predictions_path, self.historic_predictions_bkp_path)
+
+    def save_metric_tracker_to_disk(self):
+        """
+        Save metric tracker of all pair metrics collected.
+        """
+        with self.save_lock:
+            with open(self.metric_tracker_path, 'w') as fp:
+                rapidjson.dump(self.metric_tracker, fp, default=self.np_encoder,
+                               number_mode=rapidjson.NM_NATIVE)
 
     def save_drawer_to_disk(self):
         """
@@ -203,7 +268,6 @@ class FreqaiDataDrawer:
             self.pair_dict[pair] = self.empty_pair_dict.copy()
             model_filename = ""
             trained_timestamp = 0
-            self.pair_dict[pair]["priority"] = len(self.pair_dict)
 
         if not data_path_set and self.follow_mode:
             logger.warning(
@@ -223,17 +287,8 @@ class FreqaiDataDrawer:
             return
         else:
             self.pair_dict[metadata["pair"]] = self.empty_pair_dict.copy()
-            self.pair_dict[metadata["pair"]]["priority"] = len(self.pair_dict)
 
             return
-
-    def pair_to_end_of_training_queue(self, pair: str) -> None:
-        # march all pairs up in the queue
-        with self.pair_dict_lock:
-            for p in self.pair_dict:
-                self.pair_dict[p]["priority"] -= 1
-            # send pair to end of queue
-            self.pair_dict[pair]["priority"] = len(self.pair_dict)
 
     def set_initial_return_values(self, pair: str, pred_df: DataFrame) -> None:
         """
@@ -255,7 +310,7 @@ class FreqaiDataDrawer:
 
     def append_model_predictions(self, pair: str, predictions: DataFrame,
                                  do_preds: NDArray[np.int_],
-                                 dk: FreqaiDataKitchen, len_df: int) -> None:
+                                 dk: FreqaiDataKitchen, strat_df: DataFrame) -> None:
         """
         Append model predictions to historic predictions dataframe, then set the
         strategy return dataframe to the tail of the historic predictions. The length of
@@ -264,6 +319,7 @@ class FreqaiDataDrawer:
         historic predictions.
         """
 
+        len_df = len(strat_df)
         index = self.historic_predictions[pair].index[-1:]
         columns = self.historic_predictions[pair].columns
 
@@ -291,6 +347,15 @@ class FreqaiDataDrawer:
             for return_str in rets:
                 df[return_str].iloc[-1] = rets[return_str]
 
+        # this logic carries users between version without needing to
+        # change their identifier
+        if 'close_price' not in df.columns:
+            df['close_price'] = np.nan
+            df['date_pred'] = np.nan
+
+        df['close_price'].iloc[-1] = strat_df['close'].iloc[-1]
+        df['date_pred'].iloc[-1] = strat_df['date'].iloc[-1]
+
         self.model_return_values[pair] = df.tail(len_df).reset_index(drop=True)
 
     def attach_return_values_to_return_dataframe(
@@ -311,6 +376,7 @@ class FreqaiDataDrawer:
         """
 
         dk.find_features(dataframe)
+        dk.find_labels(dataframe)
 
         full_labels = dk.label_list + dk.unique_class_list
 
@@ -342,7 +408,7 @@ class FreqaiDataDrawer:
         for dir in model_folders:
             result = pattern.match(str(dir.name))
             if result is None:
-                break
+                continue
             coin = result.group(1)
             timestamp = result.group(2)
 
@@ -374,14 +440,33 @@ class FreqaiDataDrawer:
         if self.config.get("freqai", {}).get("purge_old_models", False):
             self.purge_old_models()
 
-    # Functions pulled back from FreqaiDataKitchen because they relied on DataDrawer
+    def save_metadata(self, dk: FreqaiDataKitchen) -> None:
+        """
+        Saves only metadata for backtesting studies if user prefers
+        not to save model data. This saves tremendous amounts of space
+        for users generating huge studies.
+        This is only active when `save_backtest_models`: false (not default)
+        """
+        if not dk.data_path.is_dir():
+            dk.data_path.mkdir(parents=True, exist_ok=True)
+
+        save_path = Path(dk.data_path)
+
+        dk.data["data_path"] = str(dk.data_path)
+        dk.data["model_filename"] = str(dk.model_filename)
+        dk.data["training_features_list"] = list(dk.data_dictionary["train_features"].columns)
+        dk.data["label_list"] = dk.label_list
+
+        with open(save_path / f"{dk.model_filename}_metadata.json", "w") as fp:
+            rapidjson.dump(dk.data, fp, default=self.np_encoder, number_mode=rapidjson.NM_NATIVE)
+
+        return
 
     def save_data(self, model: Any, coin: str, dk: FreqaiDataKitchen) -> None:
         """
         Saves all data associated with a model for a single sub-train time range
-        :params:
-        :model: User trained model which can be reused for inferencing to generate
-        predictions
+        :param model: User trained model which can be reused for inferencing to generate
+                      predictions
         """
 
         if not dk.data_path.is_dir():
@@ -400,7 +485,7 @@ class FreqaiDataDrawer:
 
         dk.data["data_path"] = str(dk.data_path)
         dk.data["model_filename"] = str(dk.model_filename)
-        dk.data["training_features_list"] = list(dk.data_dictionary["train_features"].columns)
+        dk.data["training_features_list"] = dk.training_features_list
         dk.data["label_list"] = dk.label_list
         # store the metadata
         with open(save_path / f"{dk.model_filename}_metadata.json", "w") as fp:
@@ -421,12 +506,27 @@ class FreqaiDataDrawer:
             )
 
         # if self.live:
+        # store as much in ram as possible to increase performance
         self.model_dictionary[coin] = model
         self.pair_dict[coin]["model_filename"] = dk.model_filename
         self.pair_dict[coin]["data_path"] = str(dk.data_path)
+        if coin not in self.meta_data_dictionary:
+            self.meta_data_dictionary[coin] = {}
+        self.meta_data_dictionary[coin]["train_df"] = dk.data_dictionary["train_features"]
+        self.meta_data_dictionary[coin]["meta_data"] = dk.data
         self.save_drawer_to_disk()
 
         return
+
+    def load_metadata(self, dk: FreqaiDataKitchen) -> None:
+        """
+        Load only metadata into datakitchen to increase performance during
+        presaved backtesting (prediction file loading).
+        """
+        with open(dk.data_path / f"{dk.model_filename}_metadata.json", "r") as fp:
+            dk.data = rapidjson.load(fp, number_mode=rapidjson.NM_NATIVE)
+            dk.training_features_list = dk.data["training_features_list"]
+            dk.label_list = dk.data["label_list"]
 
     def load_data(self, coin: str, dk: FreqaiDataKitchen) -> Any:
         """
@@ -450,14 +550,19 @@ class FreqaiDataDrawer:
                     / dk.data_path.parts[-1]
                 )
 
-        with open(dk.data_path / f"{dk.model_filename}_metadata.json", "r") as fp:
-            dk.data = json.load(fp)
-            dk.training_features_list = dk.data["training_features_list"]
-            dk.label_list = dk.data["label_list"]
+        if coin in self.meta_data_dictionary:
+            dk.data = self.meta_data_dictionary[coin]["meta_data"]
+            dk.data_dictionary["train_features"] = self.meta_data_dictionary[coin]["train_df"]
+        else:
+            with open(dk.data_path / f"{dk.model_filename}_metadata.json", "r") as fp:
+                dk.data = rapidjson.load(fp, number_mode=rapidjson.NM_NATIVE)
 
-        dk.data_dictionary["train_features"] = pd.read_pickle(
-            dk.data_path / f"{dk.model_filename}_trained_df.pkl"
-        )
+            dk.data_dictionary["train_features"] = pd.read_pickle(
+                dk.data_path / f"{dk.model_filename}_trained_df.pkl"
+            )
+
+        dk.training_features_list = dk.data["training_features_list"]
+        dk.label_list = dk.data["label_list"]
 
         # try to access model in memory instead of loading object from disk to save time
         if dk.live and coin in self.model_dictionary:
@@ -489,8 +594,7 @@ class FreqaiDataDrawer:
         Append new candles to our stores historic data (in memory) so that
         we do not need to load candle history from disk and we dont need to
         pinging exchange multiple times for the same candle.
-        :params:
-        dataframe: DataFrame = strategy provided dataframe
+        :param dataframe: DataFrame = strategy provided dataframe
         """
         feat_params = self.freqai_info["feature_parameters"]
         with self.history_lock:
@@ -536,9 +640,8 @@ class FreqaiDataDrawer:
         """
         Load pair histories for all whitelist and corr_pairlist pairs.
         Only called once upon startup of bot.
-        :params:
-        timerange: TimeRange = full timerange required to populate all indicators
-        for training according to user defined train_period_days
+        :param timerange: TimeRange = full timerange required to populate all indicators
+                          for training according to user defined train_period_days
         """
         history_data = self.historic_data
 
@@ -561,10 +664,9 @@ class FreqaiDataDrawer:
         """
         Searches through our historic_data in memory and returns the dataframes relevant
         to the present pair.
-        :params:
-        timerange: TimeRange = full timerange required to populate all indicators
-        for training according to user defined train_period_days
-        metadata: dict = strategy furnished pair metadata
+        :param timerange: TimeRange = full timerange required to populate all indicators
+                          for training according to user defined train_period_days
+        :param metadata: dict = strategy furnished pair metadata
         """
         with self.history_lock:
             corr_dataframes: Dict[Any, Any] = {}
@@ -575,7 +677,8 @@ class FreqaiDataDrawer:
             )
 
             for tf in self.freqai_info["feature_parameters"].get("include_timeframes"):
-                base_dataframes[tf] = dk.slice_dataframe(timerange, historic_data[pair][tf])
+                base_dataframes[tf] = dk.slice_dataframe(
+                    timerange, historic_data[pair][tf]).reset_index(drop=True)
                 if pairs:
                     for p in pairs:
                         if pair in p:
@@ -584,25 +687,6 @@ class FreqaiDataDrawer:
                             corr_dataframes[p] = {}
                         corr_dataframes[p][tf] = dk.slice_dataframe(
                             timerange, historic_data[p][tf]
-                        )
+                        ).reset_index(drop=True)
 
         return corr_dataframes, base_dataframes
-
-    # to be used if we want to send predictions directly to the follower instead of forcing
-    # follower to load models and inference
-    # def save_model_return_values_to_disk(self) -> None:
-    #     with open(self.full_path / str('model_return_values.json'), "w") as fp:
-    #         json.dump(self.model_return_values, fp, default=self.np_encoder)
-
-    # def load_model_return_values_from_disk(self, dk: FreqaiDataKitchen) -> FreqaiDataKitchen:
-    #     exists = Path(self.full_path / str('model_return_values.json')).resolve().exists()
-    #     if exists:
-    #         with open(self.full_path / str('model_return_values.json'), "r") as fp:
-    #             self.model_return_values = json.load(fp)
-    #     elif not self.follow_mode:
-    #         logger.info("Could not find existing datadrawer, starting from scratch")
-    #     else:
-    #         logger.warning(f'Follower could not find pair_dictionary at {self.full_path} '
-    #                        'sending null values back to strategy')
-
-    #     return exists, dk

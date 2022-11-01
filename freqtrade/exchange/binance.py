@@ -1,5 +1,4 @@
 """ Binance exchange subclass """
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +11,8 @@ from freqtrade.enums import CandleType, MarginMode, TradingMode
 from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
-from freqtrade.misc import deep_merge_dicts
+from freqtrade.exchange.types import Tickers
+from freqtrade.misc import deep_merge_dicts, json_load
 
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,7 @@ class Binance(Exchange):
     _ft_has: Dict = {
         "stoploss_on_exchange": True,
         "stoploss_order_types": {"limit": "stop_loss_limit"},
-        "order_time_in_force": ['gtc', 'fok', 'ioc'],
-        "time_in_force_parameter": "timeInForce",
+        "order_time_in_force": ['GTC', 'FOK', 'IOC'],
         "ohlcv_candle_limit": 1000,
         "trades_pagination": "id",
         "trades_pagination_arg": "fromId",
@@ -32,7 +31,7 @@ class Binance(Exchange):
         "ccxt_futures_name": "future"
     }
     _ft_has_futures: Dict = {
-        "stoploss_order_types": {"limit": "stop"},
+        "stoploss_order_types": {"limit": "limit", "market": "market"},
         "tickers_have_price": False,
     }
 
@@ -49,20 +48,19 @@ class Binance(Exchange):
         Returns True if adjustment is necessary.
         :param side: "buy" or "sell"
         """
-
-        ordertype = 'stop' if self.trading_mode == TradingMode.FUTURES else 'stop_loss_limit'
+        order_types = ('stop_loss_limit', 'stop', 'stop_market')
 
         return (
             order.get('stopPrice', None) is None
             or (
-                order['type'] == ordertype
+                order['type'] in order_types
                 and (
                     (side == "sell" and stop_loss > float(order['stopPrice'])) or
                     (side == "buy" and stop_loss < float(order['stopPrice']))
                 )
             ))
 
-    def get_tickers(self, symbols: Optional[List[str]] = None, cached: bool = False) -> Dict:
+    def get_tickers(self, symbols: Optional[List[str]] = None, cached: bool = False) -> Tickers:
         tickers = super().get_tickers(symbols=symbols, cached=cached)
         if self.trading_mode == TradingMode.FUTURES:
             # Binance's future result has no bid/ask values.
@@ -70,6 +68,37 @@ class Binance(Exchange):
             bidsasks = self.fetch_bids_asks(symbols, cached)
             tickers = deep_merge_dicts(bidsasks, tickers, allow_null_overrides=False)
         return tickers
+
+    @retrier
+    def additional_exchange_init(self) -> None:
+        """
+        Additional exchange initialization logic.
+        .api will be available at this point.
+        Must be overridden in child methods if required.
+        """
+        try:
+            if self.trading_mode == TradingMode.FUTURES and not self._config['dry_run']:
+                position_side = self._api.fapiPrivateGetPositionsideDual()
+                self._log_exchange_response('position_side_setting', position_side)
+                assets_margin = self._api.fapiPrivateGetMultiAssetsMargin()
+                self._log_exchange_response('multi_asset_margin', assets_margin)
+                msg = ""
+                if position_side.get('dualSidePosition') is True:
+                    msg += (
+                        "\nHedge Mode is not supported by freqtrade. "
+                        "Please change 'Position Mode' on your binance futures account.")
+                if assets_margin.get('multiAssetsMargin') is True:
+                    msg += ("\nMulti-Asset Mode is not supported by freqtrade. "
+                            "Please change 'Asset Mode' on your binance futures account.")
+                if msg:
+                    raise OperationalException(msg)
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
+        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+            raise TemporaryError(
+                f'Could not set leverage due to {e.__class__.__name__}. Message: {e}') from e
+        except ccxt.BaseError as e:
+            raise OperationalException(e) from e
 
     @retrier
     def _set_leverage(
@@ -202,7 +231,7 @@ class Binance(Exchange):
                     Path(__file__).parent / 'binance_leverage_tiers.json'
                 )
                 with open(leverage_tiers_path) as json_file:
-                    return json.load(json_file)
+                    return json_load(json_file)
             else:
                 try:
                     return self._api.fetch_leverage_tiers()

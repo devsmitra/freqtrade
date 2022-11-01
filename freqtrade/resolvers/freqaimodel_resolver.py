@@ -5,9 +5,8 @@ This module load a custom model for freqai
 """
 import logging
 from pathlib import Path
-from typing import Dict
 
-from freqtrade.constants import USERPATH_FREQAIMODELS
+from freqtrade.constants import USERPATH_FREQAIMODELS, Config
 from freqtrade.exceptions import OperationalException
 from freqtrade.freqai.freqai_interface import IFreqaiModel
 from freqtrade.resolvers import IResolver
@@ -27,9 +26,10 @@ class FreqaiModelResolver(IResolver):
     initial_search_path = (
         Path(__file__).parent.parent.joinpath("freqai/prediction_models").resolve()
     )
+    extra_path = "freqaimodel_path"
 
     @staticmethod
-    def load_freqaimodel(config: Dict) -> IFreqaiModel:
+    def load_freqaimodel(config: Config) -> IFreqaiModel:
         """
         Load the custom class from config parameter
         :param config: configuration dictionary
@@ -51,7 +51,6 @@ class FreqaiModelResolver(IResolver):
             freqaimodel_name,
             config,
             kwargs={"config": config},
-            extra_dir=config.get("freqaimodel_path"),
         )
 
         return freqaimodel

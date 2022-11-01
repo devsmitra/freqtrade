@@ -6,13 +6,15 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, List
+from typing import Any, Dict, Iterator, List, Mapping, Union
 from typing.io import IO
 from urllib.parse import urlparse
 
+import pandas
 import rapidjson
 
 from freqtrade.constants import DECIMAL_PER_COIN_FALLBACK, DECIMALS_PER_COIN
+from freqtrade.enums import SignalTagType, SignalType
 
 
 logger = logging.getLogger(__name__)
@@ -184,7 +186,10 @@ def safe_value_fallback(obj: dict, key1: str, key2: str, default_value=None):
     return default_value
 
 
-def safe_value_fallback2(dict1: dict, dict2: dict, key1: str, key2: str, default_value=None):
+dictMap = Union[Dict[str, Any], Mapping[str, Any]]
+
+
+def safe_value_fallback2(dict1: dictMap, dict2: dictMap, key1: str, key2: str, default_value=None):
     """
     Search a value in dict1, return this if it's not None.
     Fall back to dict2 - return key2 from dict2 if it's not None.
@@ -249,3 +254,41 @@ def parse_db_uri_for_logging(uri: str):
         return uri
     pwd = parsed_db_uri.netloc.split(':')[1].split('@')[0]
     return parsed_db_uri.geturl().replace(f':{pwd}@', ':*****@')
+
+
+def dataframe_to_json(dataframe: pandas.DataFrame) -> str:
+    """
+    Serialize a DataFrame for transmission over the wire using JSON
+    :param dataframe: A pandas DataFrame
+    :returns: A JSON string of the pandas DataFrame
+    """
+    return dataframe.to_json(orient='split')
+
+
+def json_to_dataframe(data: str) -> pandas.DataFrame:
+    """
+    Deserialize JSON into a DataFrame
+    :param data: A JSON string
+    :returns: A pandas DataFrame from the JSON string
+    """
+    dataframe = pandas.read_json(data, orient='split')
+    if 'date' in dataframe.columns:
+        dataframe['date'] = pandas.to_datetime(dataframe['date'], unit='ms', utc=True)
+
+    return dataframe
+
+
+def remove_entry_exit_signals(dataframe: pandas.DataFrame):
+    """
+    Remove Entry and Exit signals from a DataFrame
+
+    :param dataframe: The DataFrame to remove signals from
+    """
+    dataframe[SignalType.ENTER_LONG.value] = 0
+    dataframe[SignalType.EXIT_LONG.value] = 0
+    dataframe[SignalType.ENTER_SHORT.value] = 0
+    dataframe[SignalType.EXIT_SHORT.value] = 0
+    dataframe[SignalTagType.ENTER_TAG.value] = None
+    dataframe[SignalTagType.EXIT_TAG.value] = None
+
+    return dataframe

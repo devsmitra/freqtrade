@@ -1,13 +1,11 @@
 import logging
 from copy import deepcopy
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.exceptions import HTTPException
 
 from freqtrade import __version__
-from freqtrade.constants import USERPATH_STRATEGIES
 from freqtrade.data.history import get_datahandler
 from freqtrade.enums import CandleType, TradingMode
 from freqtrade.exceptions import OperationalException
@@ -38,7 +36,8 @@ logger = logging.getLogger(__name__)
 # 2.15: Add backtest history endpoints
 # 2.16: Additional daily metrics
 # 2.17: Forceentry - leverage, partial force_exit
-API_VERSION = 2.17
+# 2.20: Add websocket endpoints
+API_VERSION = 2.20
 
 # Public API, requires no auth.
 router_public = APIRouter()
@@ -252,11 +251,9 @@ def plot_config(rpc: RPC = Depends(get_rpc)):
 
 @router.get('/strategies', response_model=StrategyListResponse, tags=['strategy'])
 def list_strategies(config=Depends(get_config)):
-    directory = Path(config.get(
-        'strategy_path', config['user_data_dir'] / USERPATH_STRATEGIES))
     from freqtrade.resolvers.strategy_resolver import StrategyResolver
     strategies = StrategyResolver.search_all_objects(
-        directory, False, config.get('recursive_strategy_search', False))
+        config, False, config.get('recursive_strategy_search', False))
     strategies = sorted(strategies, key=lambda x: x['name'])
 
     return {'strategies': [x['name'] for x in strategies]}
@@ -264,6 +261,8 @@ def list_strategies(config=Depends(get_config)):
 
 @router.get('/strategy/{strategy}', response_model=StrategyResponse, tags=['strategy'])
 def get_strategy(strategy: str, config=Depends(get_config)):
+    if ":" in strategy:
+        raise HTTPException(status_code=500, detail="base64 encoded strategies are not allowed.")
 
     config_ = deepcopy(config)
     from freqtrade.resolvers.strategy_resolver import StrategyResolver

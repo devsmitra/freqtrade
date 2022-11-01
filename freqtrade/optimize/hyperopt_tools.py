@@ -12,7 +12,7 @@ import tabulate
 from colorama import Fore, Style
 from pandas import isna, json_normalize
 
-from freqtrade.constants import FTHYPT_FILEVERSION, USERPATH_STRATEGIES
+from freqtrade.constants import FTHYPT_FILEVERSION, Config
 from freqtrade.enums import HyperoptState
 from freqtrade.exceptions import OperationalException
 from freqtrade.misc import deep_merge_dicts, round_coin_value, round_dict, safe_value_fallback2
@@ -45,14 +45,13 @@ class HyperoptStateContainer():
 class HyperoptTools():
 
     @staticmethod
-    def get_strategy_filename(config: Dict, strategy_name: str) -> Optional[Path]:
+    def get_strategy_filename(config: Config, strategy_name: str) -> Optional[Path]:
         """
         Get Strategy-location (filename) from strategy_name
         """
         from freqtrade.resolvers.strategy_resolver import StrategyResolver
-        directory = Path(config.get('strategy_path', config['user_data_dir'] / USERPATH_STRATEGIES))
         strategy_objs = StrategyResolver.search_all_objects(
-            directory, False, config.get('recursive_strategy_search', False))
+            config, False, config.get('recursive_strategy_search', False))
         strategies = [s for s in strategy_objs if s['name'] == strategy_name]
         if strategies:
             strategy = strategies[0]
@@ -81,7 +80,7 @@ class HyperoptTools():
                            )
 
     @staticmethod
-    def try_export_params(config: Dict[str, Any], strategy_name: str, params: Dict):
+    def try_export_params(config: Config, strategy_name: str, params: Dict):
         if params.get(FTHYPT_FILEVERSION, 1) >= 2 and not config.get('disableparamexport', False):
             # Export parameters ...
             fn = HyperoptTools.get_strategy_filename(config, strategy_name)
@@ -91,7 +90,7 @@ class HyperoptTools():
                 logger.warning("Strategy not found, not exporting parameter file.")
 
     @staticmethod
-    def has_space(config: Dict[str, Any], space: str) -> bool:
+    def has_space(config: Config, space: str) -> bool:
         """
         Tell if the space value is contained in the configuration
         """
@@ -131,7 +130,7 @@ class HyperoptTools():
             return False
 
     @staticmethod
-    def load_filtered_results(results_file: Path, config: Dict[str, Any]) -> Tuple[List, int]:
+    def load_filtered_results(results_file: Path, config: Config) -> Tuple[List, int]:
         filteroptions = {
             'only_best': config.get('hyperopt_list_best', False),
             'only_profitable': config.get('hyperopt_list_profitable', False),
@@ -346,7 +345,7 @@ class HyperoptTools():
         return trials
 
     @staticmethod
-    def get_result_table(config: dict, results: list, total_epochs: int, highlight_best: bool,
+    def get_result_table(config: Config, results: list, total_epochs: int, highlight_best: bool,
                          print_colorized: bool, remove_header: int) -> str:
         """
         Log result table
@@ -444,7 +443,7 @@ class HyperoptTools():
         return table
 
     @staticmethod
-    def export_csv_file(config: dict, results: list, csv_file: str) -> None:
+    def export_csv_file(config: Config, results: list, csv_file: str) -> None:
         """
         Log result to csv-file
         """
