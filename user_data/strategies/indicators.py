@@ -39,7 +39,11 @@ def lowest(series, n):
 
 
 def series(value, df):
-    return pd.series(value, index=df.index)
+    return pd.Series(value, index=df.index)
+
+
+def change(series):
+    return series.diff()
 
 # -------------------------------- INDICATORS --------------------------------
 
@@ -52,7 +56,7 @@ def zlsma(df, period=50, offset=0, column='close'):
     return lsma + eq
 
 
-def chandelier_exit(df, timeperiod=14, multiplier=2, column='close'):
+def chandelier_exit(df, timeperiod=22, multiplier=3.0, column='close'):
     close = df[column]
     high = df['ha_high']
     low = df['ha_low']
@@ -61,11 +65,11 @@ def chandelier_exit(df, timeperiod=14, multiplier=2, column='close'):
     longStop = highest(close, timeperiod) - atr
     longStopPrev = nz(longStop)
 
-    # shortStop = lowest(close, timeperiod) + atr
-    # shortStopPrev = nz(shortStop)
+    shortStop = lowest(close, timeperiod) + atr
+    shortStopPrev = nz(shortStop)
 
-    signal = pd.Series(1, index=df.index)
-    # signal.loc[close > shortStopPrev] = 1
+    signal = pd.Series(0, index=df.index)
+    signal.loc[close > shortStopPrev] = 1
     signal.loc[close < longStopPrev] = -1
 
     return signal
@@ -90,10 +94,6 @@ def calculate_money_flow_volume(df, n: int = 20):
 
 def calculate_chaikin_money_flow(df, n: int = 20):
     return calculate_money_flow_volume(df, n) / df['volume'].rolling(n).sum()
-
-
-def poki(df, timeperiod=100, column='close'):
-    pass
 
 
 def cmf(df, timeperiod=20,):

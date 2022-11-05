@@ -20,7 +20,11 @@ class MACD(IStrategy):
 
     # Optimal stoploss designed for the strategy
     stoploss = -0.1
-    use_custom_stoploss = True
+    trailing_stop = True
+    trailing_stop_positive = 0.075
+    trailing_stop_positive_offset = 0.1
+    trailing_only_offset_is_reached = True
+    use_custom_stoploss = False
 
     # Optimal timeframe for the strategy
     timeframe = '1h'
@@ -43,7 +47,7 @@ class MACD(IStrategy):
         df['atr'] = ta.ATR(df, timeperiod=14)
         df['zlsma'] = indicators.zlsma(df, period=50, offset=0, column='ha_close')
         df['chandelier_exit'] = indicators.chandelier_exit(
-            df, timeperiod=14, multiplier=1.85, column='ha_close'
+            df, timeperiod=22, multiplier=1.85, column='ha_close'
         )
 
         df['cmf'] = indicators.cmf(df)
@@ -52,10 +56,10 @@ class MACD(IStrategy):
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         enter_long = (
-            ((df['ha_close'].diff() / df['ha_close']) < .1) &
+            ((df['ha_close'].diff() / df['ha_close']) < .2) &
             (df['ha_close'] > df['zlsma']) &
             (df['cmf'] > 0) &
-            qtpylib.crossed_above(df['chandelier_exit'], -1)
+            qtpylib.crossed_above(df['chandelier_exit'], 0)
         )
         df.loc[enter_long, 'enter_long'] = 1
         return df
@@ -63,6 +67,7 @@ class MACD(IStrategy):
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
             (
+                False &
                 (df['chandelier_exit'] < 1) &
                 (df['ha_close'] < df['zlsma']) &
                 (df['cmf'] < 0)
@@ -104,3 +109,40 @@ class MACD(IStrategy):
                 "only_per_pair": True
             },
         ]
+
+    custom_info: dict = {}
+
+    def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
+                           rate: float, time_in_force: str, exit_reason: str,
+                           current_time: datetime, **kwargs) -> bool:
+        profit = trade.calc_profit_ratio(rate)
+        if (((exit_reason == 'force_exit') | (exit_reason == 'exit_signal')) and (profit < 0.005)):
+            return False
+        if pair in self.custom_info:
+            del self.custom_info[pair]
+        return True
+
+    def custom_exit(self, pair: str, trade: Trade, current_time: 'datetime',
+                    current_rate: float, current_profit: float, **kwargs):
+        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        last_candle = df.iloc[-1].squeeze()
+
+        if pair not in self.custom_info:
+            self.custom_info[pair] = {
+                'info': last_candle,
+                'hit': False
+            }
+
+        details = self.custom_info[pair]
+        info = details['info']
+        hit = details['hit']
+
+        diff = info['atr'] * 2
+        if ((((1.5 * diff) + trade.open_rate) < current_rate) | hit) & (current_profit > .005):
+            self.custom_info[pair]['hit'] = True
+            if (last_candle['chandelier_exit'] < 1):
+                del self.custom_info[pair]
+                return 'Profit Booked'
+        elif (current_rate < (trade.open_rate - diff)):
+            del self.custom_info[pair]
+            return 'Stop Loss Hit'
