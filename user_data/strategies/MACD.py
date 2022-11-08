@@ -49,8 +49,12 @@ class MACD(IStrategy):
         df['chandelier_exit'] = indicators.chandelier_exit(
             df, timeperiod=22, multiplier=1.85, column='ha_close'
         )
-
         df['cmf'] = indicators.cmf(df)
+        st = indicators.supertrend(df)
+        df['trend'] = st['ST']
+
+        df['rsi'] = ta.RSI(df, timeperiod=25)
+        df['rsi_ma'] = ta.SMA(df['rsi'], timeperiod=150)
         # vol = indicators.volatility_osc(df)
         return df
 
@@ -59,7 +63,11 @@ class MACD(IStrategy):
             ((df['ha_close'].diff() / df['ha_close']) < .2) &
             (df['ha_close'] > df['zlsma']) &
             (df['cmf'] > 0) &
-            qtpylib.crossed_above(df['chandelier_exit'], 0)
+            (df['rsi'] > df['rsi_ma']) &
+            (
+                ((df['trend'] < df['ha_close']) & qtpylib.crossed_above(df['chandelier_exit'], 0)) |
+                (qtpylib.crossed_above(df['ha_close'], df['trend']) & (df['chandelier_exit'] > 0))
+            )
         )
         df.loc[enter_long, 'enter_long'] = 1
         return df
@@ -67,10 +75,9 @@ class MACD(IStrategy):
     def populate_exit_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         df.loc[
             (
-                False &
+                (df['trend'] > df['ha_close']) &
                 (df['chandelier_exit'] < 1) &
-                (df['ha_close'] < df['zlsma']) &
-                (df['cmf'] < 0)
+                (df['ha_close'] < df['zlsma'])
             ),
             'exit_long'
         ] = 1
@@ -130,19 +137,19 @@ class MACD(IStrategy):
         if pair not in self.custom_info:
             self.custom_info[pair] = {
                 'info': last_candle,
-                'hit': False
+                'hit': False,
             }
 
         details = self.custom_info[pair]
-        info = details['info']
+        swing_low = details['info']['trend']
         hit = details['hit']
 
-        diff = info['atr'] * 2
+        diff = trade.open_rate - swing_low
         if ((((1.5 * diff) + trade.open_rate) < current_rate) | hit) & (current_profit > .005):
             self.custom_info[pair]['hit'] = True
             if (last_candle['chandelier_exit'] < 1):
                 del self.custom_info[pair]
                 return 'Profit Booked'
-        elif (current_rate < (trade.open_rate - diff)):
+        elif (current_rate < swing_low):
             del self.custom_info[pair]
             return 'Stop Loss Hit'
