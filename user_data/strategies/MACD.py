@@ -20,11 +20,7 @@ class MACD(IStrategy):
 
     # Optimal stoploss designed for the strategy
     stoploss = -0.1
-    trailing_stop = True
-    trailing_stop_positive = 0.075
-    trailing_stop_positive_offset = 0.1
-    trailing_only_offset_is_reached = True
-    use_custom_stoploss = False
+    use_custom_stoploss = True
 
     # Optimal timeframe for the strategy
     timeframe = '1h'
@@ -86,20 +82,25 @@ class MACD(IStrategy):
     def custom_stoploss(self, pair: str, trade: Trade, current_time: datetime,
                         current_rate: float, current_profit: float, **kwargs) -> float:
 
-        df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
-        candle = df.iloc[-1].squeeze()
-        atr = candle['atr']
+        # df, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        # candle = df.iloc[-1].squeeze()
+        # atr = candle['atr']
 
-        def get_stoploss(multiplier):
-            return stoploss_from_absolute(current_rate - (
-               atr * multiplier), current_rate, is_short=trade.is_short
-            ) * -1
+        # def get_stoploss(multiplier):
+        #     return stoploss_from_absolute(current_rate - (
+        #        atr * multiplier), current_rate, is_short=trade.is_short
+        #     ) * -1
 
-        if (current_profit > .1):
-            if (candle['chandelier_exit'] != 1):
-                return get_stoploss(1.1)
-            return get_stoploss(2.1)
-        return get_stoploss(4.1)
+        if (current_profit > .075):
+            return -.02
+
+        if pair not in self.custom_info:
+            return 1
+
+        details = self.custom_info[pair]
+        swing_low = details['info']['trend']
+        return stoploss_from_absolute(trade.open_rate - swing_low, trade.open_rate,
+                                      is_short=trade.is_short) * -1
 
     @property
     def protections(self):
