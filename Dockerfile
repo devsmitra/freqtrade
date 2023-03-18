@@ -56,4 +56,4 @@ EXPOSE 8080
 
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
-CMD [ "trade", "--strategy", "MACD" ]
+CMD [ "trade", "--strategy", "NadarayaWatson" ]

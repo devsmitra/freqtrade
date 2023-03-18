@@ -4,6 +4,10 @@ import numpy as np
 import pandas as pd
 import freqtrade.vendor.qtpylib.indicators as qtpylib
 
+import math
+# import talib as ta
+# import matplotlib.pyplot as plt
+
 # -------------------------------- UTILS --------------------------------
 
 
@@ -216,3 +220,153 @@ def poki(df):
         'long': longCondition,
         'short': shortCondition,
     })
+
+
+# ---------------
+
+# def Nadaraya_Watson(df):
+#     length = 500
+#     h = 8
+#     mult = 3
+#     src =  df['close']
+
+#     n = np.arange(len(src))
+#     k = 2
+#     upper = []
+#     lower = []
+
+#     for i in range(length//k):
+#         upper.append(np.nan)
+#         lower.append(np.nan)
+
+#     up = np.full(len(src), np.nan)
+#     dn = np.full(len(src), np.nan)
+
+#     cross_up = 0
+#     cross_dn = 0
+
+#     y = []
+#     sum_e = 0
+    
+#     for i in range(length):
+#         sum_w = 0
+#         sum_y = 0
+#         for j in range(length):
+#             w = math.exp(-((i-j)**2)/(h**2*2))
+#             sum_w += w
+#             sum_y += src[j]*w
+#         y2 = sum_y/sum_w
+#         sum_e += abs(src[i] - y2)
+#         y.append(y2)
+        
+#     mae = sum_e/length*mult
+    
+#     for i in range(1, length):
+#         y2 = y[i]
+#         y1 = y[i-1]
+#         up[i] = upper[i//k]
+#         dn[i] = lower[i//k]
+        
+#         up[i-k+1:i+1] = [y1+mae]*k
+#         dn[i-k+1:i+1] = [y1-mae]*k
+        
+#         # if src[i] > y1 + mae and src[i+1] < y1 + mae:
+#         #     # plt.text(n[-i], src[i], '▼', color=dn_col, ha='center', va='center')
+#         # if src[i] < y1 - mae and src[i+1] > y1 - mae:
+#             # plt.text(n[-i], src[i], '▲', color=up_col, ha='center', va='center')
+            
+#     cross_up = y[0] + mae
+#     cross_dn = y[0] - mae
+#     return {
+#         'up': cross_up,
+#         'dn': cross_dn
+#     }
+
+
+def Nadaraya_Watson(df):
+    # src = df['close']
+    src = df['close'].copy()
+    src = src.loc[::-1].reset_index(drop=True)
+    # Settings
+    h = 8
+    r = 8
+    x_0 = 25
+    lag = 2
+    size = len(src)
+    smoothColors = False
+
+    def kernel_regression(_src, _size, _h):
+        # yhat = [nan] * (x_0 + lag)
+        yhat = []
+        for i in range(_size - (x_0 + lag)):
+            _currentWeight = 0.
+            _cumulativeWeight = 0.
+            for j in range(i, i + x_0 + lag):
+                y = _src[j] 
+                w = math.pow(1 + (math.pow(i-j, 2) / ((math.pow(_h, 2) * 2 * r))), -r)
+                _currentWeight += (y * w)
+                _cumulativeWeight += w
+            yhat.append(_currentWeight / _cumulativeWeight)
+
+        for i in range((x_0 + lag)):
+            yhat.append(nan)
+        return yhat
+
+    # Estimations
+    yhat11 = kernel_regression(src, size, h)
+    yhat22 = kernel_regression(src, size, h-lag)
+
+    yhat11.reverse()
+    yhat22.reverse()
+
+    yhat1 = pd.Series(yhat11)
+    yhat2 = pd.Series(yhat22)
+
+    # Rates of Change
+    wasBearish = yhat1.shift(2) > yhat1.shift(1)
+    wasBullish = yhat1.shift(2) < yhat1.shift(1)
+    isBearish = yhat1.shift(1) > yhat1
+    isBullish = yhat1.shift(1) < yhat1
+
+    isBearishChange = isBearish & wasBullish
+    isBullishChange = isBullish & wasBearish
+
+    # Crossovers
+    isBullishCross = qtpylib.crossed_above(yhat2, yhat1)
+    isBearishCross = qtpylib.crossed_below(yhat2, yhat1)
+    isBullishSmooth = yhat2 > yhat1
+    isBearishSmooth = yhat2 < yhat1
+
+    # print(isBullishCross)
+
+
+    # for i in range(len(yhat1)-1):
+    #     print(i, yhat1.iloc[i])
+    return {
+        'yhat': yhat1,
+        'yhat2': yhat2,
+        'bullish': isBullishCross,
+        'bearish': isBearishCross,
+    }
+
+    # Colors
+    # c_bullish = input.color('#3AFF17', 'Bullish Color', group='Colors')
+    # c_bearish = input.color('#FD1707', 'Bearish Color', group='Colors')
+    # colorByCross = c_bullish if isBullishSmooth else c_bearish
+    # colorByRate = c_bullish if isBullish else c_bearish
+    # plotColor = colorByCross if smoothColors else colorByRate
+
+    # # Plot
+    # plot(yhat1, "Rational Quadratic Kernel Estimate", color=plotColor, linewidth=2)
+
+
+    # // Alert Variables
+    # bool alertBullish = smoothColors ? isBearishCross : isBearishChange
+    # bool alertBearish = smoothColors ? isBullishCross : isBullishChange
+
+    # // Alerts for Color Changes
+    # alertcondition(condition=alertBullish, title='Bearish Color Change', message='Nadaraya-Watson: {{ticker}} ({{interval}}) turned Bearish ▼')
+    # alertcondition(condition=alertBearish, title='Bullish Color Change', message='Nadaraya-Watson: {{ticker}} ({{interval}}) turned Bullish ▲')
+
+    # // Non-Displayed Plot Outputs (i.e., for use in other indicators)
+    # plot(alertBearish ? -1 : alertBullish ? 1 : 0, "Alert Stream", display=display.none)
