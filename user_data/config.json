@@ -51,40 +51,22 @@
       "BNB/BUSD",
       "ADA/BUSD",
       "XRP/BUSD",
+      "DOGE/BUSD",
+      "MATIC/BUSD",
+      "SOL/BUSD",
       "DOT/BUSD",
-      "UNI/BUSD",
       "LTC/BUSD",
-      "LINK/BUSD",
-      "SOL/BUSD"
+      "SHIB/BUSD",
+      "TRX/BUSD",
+      "AVAX/BUSD",
+      "DAI/BUSD",
+      "WBTC/BUSD",
+      "UNI/BUSD",
+      "LINK/BUSD"
     ],
     "pair_blacklist": []
   },
-  "pairlists": [
-    {
-      "method": "VolumePairList",
-      "number_assets": 60,
-      "sort_key": "quoteVolume",
-      "min_value": 0,
-      "refresh_period": 1800
-    },
-    {
-      "method": "AgeFilter",
-      "min_days_listed": 2
-    },
-    {
-      "method": "RangeStabilityFilter",
-      "lookback_days": 5,
-      "min_rate_of_change": 0.02,
-      "refresh_period": 1440
-    },
-    {
-      "method": "VolatilityFilter",
-      "lookback_days": 5,
-      "min_volatility": 0.05,
-      "max_volatility": 100,
-      "refresh_period": 86400
-    }
-  ],
+  "pairlists": [{ "method": "StaticPairList" }],
   "edge": {
     "enabled": false,
     "process_throttle_secs": 3600,
